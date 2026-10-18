@@ -4,7 +4,7 @@
 유흥·도박·성인 시설의 밀집도와 경찰이 공개한 거리 범죄 통계를 100m 격자 점수(0~100)로 만들어,
 구글맵과 같은 줌 단계의 지도 위에 히트맵으로 겹쳐 보여 줍니다.
 
-**지도 보기:** `https://<GitHub 사용자 이름>.github.io/<저장소 이름>/` (GitHub Pages 설정 후)
+**지도 보기:** `https://Yasen-siyo.github.io/anshin-map/` 
 
 ![지도 미리보기 (배경 지도 없이 히트맵만)](docs/preview.png)
 
