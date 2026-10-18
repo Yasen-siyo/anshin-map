@@ -4,7 +4,7 @@
 유흥·도박·성인 시설의 밀집도와 경찰이 공개한 거리 범죄 통계를 100m 격자 점수(0~100)로 만들어,
 구글맵과 같은 줌 단계의 지도 위에 히트맵으로 겹쳐 보여 줍니다.
 
-**지도 보기:** `https://Yasen-siyo.github.io/anshin-map/` 
+**지도 보기:** `https://<GitHub 사용자 이름>.github.io/<저장소 이름>/` (GitHub Pages 설정 후)
 
 ![지도 미리보기 (배경 지도 없이 히트맵만)](docs/preview.png)
 
@@ -79,4 +79,4 @@ Settings → Pages → Branch 를 `main` / `(root)` 로 지정하면 됩니다.
 ## 라이선스
 
 코드는 [MIT License](LICENSE) 입니다. 지도에 들어간 데이터는 각 출처의 이용 조건을 따릅니다
-(OpenStreetMap 은 ODbL, 경찰·e-Stat 자료는 각 기관의 이용 규약). [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) 참고.
+(OpenStreetMap 은 ODbL, 경찰·e-Stat 자료는 각 기관의 이용 규약). [DATA_LICENSE.md](DATA_LICENSE.md) 참고.

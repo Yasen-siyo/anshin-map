@@ -90,6 +90,8 @@ const CAT = {
 };
 
 const map = L.map("map", { zoomControl: true }).setView([35.681, 139.767], 12);
+// 히트맵에 쓴 데이터의 출처 표기 (OSM 은 ODbL 상 표기 의무)
+map.attributionControl.addAttribution('시설 데이터 &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> (ODbL) · 범죄: 경시청·가나가와현경·지바현경 · 경계: e-Stat');
 const gsi = L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png", {
   maxZoom: 18, attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html">国土地理院</a>' });
 const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
