@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>숙박 안심도 지도</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+/* 레이아웃: 화면 전체 지도 + 왼쪽 위 떠 있는 조작 패널 */
+:root {
+  --bg: #f6f7f5; --panel: #ffffffee; --fg: #1d2420; --muted: #5d6a63; --line: #d5dbd6; --accent: #1f6f5c;
+  --input-bg: #ffffff; --safe: #2ea043; --warn: #facc15; --risk: #b91c1c;
+  --font: "Noto Sans KR", "Noto Sans JP", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #121614; --panel: #1b211eee; --fg: #e6ece8; --muted: #9aa8a0; --line: #33403a; --accent: #5fc4a8; --input-bg: #0f1311; color-scheme: dark; }
+}
+html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--font); }
+#map { position: absolute; inset: 0; }
+.panel { position: absolute; z-index: 1000; top: 12px; left: 56px; width: min(320px, calc(100vw - 72px));
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 10px; backdrop-filter: blur(6px); }
+.panel h1 { font-size: 15px; margin: 0; }
+.row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.row input[type=text] { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--input-bg); color: var(--fg);
+  -webkit-text-fill-color: var(--fg); caret-color: var(--fg); font: inherit; font-size: 16px; }
+button { padding: 6px 10px; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 6px; cursor: pointer; }
+button.ghost { background: transparent; color: var(--accent); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.label { font-size: 11px; letter-spacing: .04em; color: var(--muted); text-transform: uppercase; }
+.score { display: flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
+.score b { font-size: 28px; }
+.legend { height: 8px; border-radius: 4px; background: linear-gradient(90deg, var(--safe), var(--warn), #ea580c, var(--risk)); }
+.legend-l { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+.cats { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; font-size: 12px; }
+.cats label { display: flex; gap: 4px; align-items: center; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.hint { font-size: 11px; color: var(--muted); }
+details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+.panel.folded > :not(:first-child) { display: none; }
+@media (max-width: 600px) { .panel { left: 50px; top: 8px; padding: 10px; gap: 8px; } .score b { font-size: 22px; } }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="panel" id="panel">
+  <div class="row" style="justify-content:space-between"><h1>숙박 안심도 지도</h1><button class="ghost" id="fold" aria-expanded="true">접기</button></div>
+  <div class="row">
+    <input type="text" id="q" placeholder="신주쿠, Shinjuku, 新宿駅, 또는 35.69, 139.70">
+    <button id="go">찾기</button>
+  </div>
+  <div>
+    <div class="label">커서 위치 안심도</div>
+    <div class="score"><b id="sv">–</b><span id="sl" class="hint">지도 위에 마우스를 올리거나 탭하세요</span></div>
+    <div class="legend"></div>
+    <div class="legend-l"><span>안심 100</span><span>주의</span><span>0 위험</span></div>
+  </div>
+  <div class="row">
+    <span class="label">히트맵 투명도</span>
+    <input type="range" id="op" min="0" max="100" value="65" style="flex:1">
+  </div>
+  <div class="row">
+    <span class="hint">줌 <b id="zv"></b> (구글맵과 같은 단계)</span>
+    <button class="ghost" id="gm">구글맵에서 같은 위치 열기</button>
+  </div>
+  <div class="cats">
+    <label><input type="checkbox" id="cv-edge" checked><span class="dot" style="background:#0f3c78"></span>데이터 범위 경계선</label>
+    <label><input type="checkbox" id="cv-none" checked><span class="dot" style="background:repeating-linear-gradient(45deg,#464650 0 2px,#c8c8d0 2px 4px)"></span>범죄 자료 없는 곳</label>
+  </div>
+  <details>
+    <summary>시설 표시 (줌 14 이상)</summary>
+    <div class="cats" id="cats"></div>
+  </details>
+  <div class="hint" id="results"></div>
+  <div class="hint" id="info"></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const META = /*META*/null;
+const HEAT = "/*HEAT*/";
+const ANSHIN = "/*ANSHIN*/";
+const COVER = "/*COVER*/";
+const POI = /*POI*/null;
+
+const CAT = {
+  stripclub: ["스트립클럽", "#7e22ce"], brothel: ["성매매 업소", "#7e22ce"], nightclub: ["나이트클럽", "#db2777"],
+  pachinko: ["파칭코·슬롯", "#ea580c"], gambling: ["오락실·도박", "#f59e0b"], adult_shop: ["성인용품점", "#be185d"],
+  love_hotel: ["러브호텔", "#e11d48"], bar: ["바", "#2563eb"], hookah: ["물담배", "#0891b2"],
+};
+
+const map = L.map("map", { zoomControl: true }).setView([35.681, 139.767], 12);
+const gsi = L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png", {
+  maxZoom: 18, attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html">国土地理院</a>' });
+const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" });
+// 영어 지명 지도 (Esri). 일본어 지도가 보기 어려워 기본으로 사용
+const esri = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+  maxZoom: 19, attribution: "Tiles &copy; Esri" });
+const esriGray = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}", {
+  maxZoom: 16, attribution: "Tiles &copy; Esri" });
+const esriGrayLabel = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}", {
+  maxZoom: 16 });
+const gray = L.layerGroup([esriGray, esriGrayLabel]);
+esri.addTo(map);
+
+const heat = L.imageOverlay(HEAT, META.bounds, { opacity: 0.65, interactive: false, className: "heat" }).addTo(map);
+L.control.layers({ "영어 도로 지도 (Esri)": esri, "영어 연회색 지도 (Esri, 줌 16까지)": gray, "일본어 연한 지도 (국토지리원)": gsi, "OpenStreetMap (일본어)": osm }, { "안심도 히트맵": heat }).addTo(map);
+// 데이터 범위: 경계선과 빗금을 각각 켜고 끌 수 있게 같은 이미지를 두 장 겹친다
+// (빗금 이미지는 CSS 로 경계선 색만, 경계선 이미지는 빗금만 숨길 수 없어 캔버스로 나눈다)
+const coverEdge = L.imageOverlay(COVER, META.bounds, { interactive: false, opacity: 1 });
+const coverNone = L.imageOverlay(COVER, META.bounds, { interactive: false, opacity: 1 });
+(() => {
+  const im = new Image();
+  im.onload = () => {
+    const mk = keep => {
+      const c = document.createElement("canvas"); c.width = im.width; c.height = im.height;
+      const x = c.getContext("2d"); x.drawImage(im, 0, 0);
+      const d = x.getImageData(0, 0, c.width, c.height), a = d.data;
+      for (let i = 0; i < a.length; i += 4) if ((a[i + 3] === 255 && a[i + 2] === 120) !== keep) a[i + 3] = 0;
+      x.putImageData(d, 0, 0); return c.toDataURL();
+    };
+    coverEdge.setUrl(mk(true)); coverNone.setUrl(mk(false));
+    syncCover();
+  };
+  im.src = COVER;
+})();
+function syncCover() {
+  document.getElementById("cv-edge").checked ? coverEdge.addTo(map) : coverEdge.remove();
+  document.getElementById("cv-none").checked ? coverNone.addTo(map) : coverNone.remove();
+}
+document.getElementById("cv-edge").onchange = syncCover;
+document.getElementById("cv-none").onchange = syncCover;
+document.getElementById("op").oninput = e => heat.setOpacity(e.target.value / 100);
+
+// 점수 조회용: 안심도 PNG(회색조)를 캔버스로 읽어 픽셀값을 가져온다
+let grid = null;
+const img = new Image();
+img.onload = () => {
+  const c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
+  const ctx = c.getContext("2d"); ctx.drawImage(img, 0, 0);
+  grid = ctx.getImageData(0, 0, c.width, c.height).data;
+};
+img.src = ANSHIN;
+const [[s, w], [n, e]] = META.bounds;
+const y = lat => Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360));
+function scoreAt(ll) {
+  if (!grid || ll.lat < s || ll.lat > n || ll.lng < w || ll.lng > e) return null;
+  const j = Math.floor((ll.lng - w) / (e - w) * META.nx);
+  const i = Math.floor((y(n) - y(ll.lat)) / (y(n) - y(s)) * META.ny);
+  const k = (i * META.nx + j) * 4;
+  return { v: grid[k], code: grid[k + 1] };
+}
+function label(v) { return v >= 80 ? "안심" : v >= 60 ? "보통" : v >= 40 ? "주의" : "위험"; }
+// PC 는 마우스를 올리면, 폰은 탭하면 점수를 보여준다
+const showScore = ev => {
+  const r = scoreAt(ev.latlng);
+  const ok = r && r.code > 0;
+  document.getElementById("sv").textContent = ok ? r.v : "–";
+  document.getElementById("sl").textContent = !ok ? "데이터 없음" : label(r.v) + (r.code === 2 ? " (범죄 자료 없음, 시설만)" : "");
+};
+map.on("mousemove", showScore);
+map.on("click", showScore);
+
+// 시설 점: 줌 14 이상에서만
+const groups = {};
+const catsEl = document.getElementById("cats");
+for (const [k, [name, color]] of Object.entries(CAT)) {
+  groups[k] = L.layerGroup();
+  const n = (META.poi_counts || {})[k] || 0;
+  catsEl.insertAdjacentHTML("beforeend",
+    `<label><input type="checkbox" id="c-${k}" checked><span class="dot" style="background:${color}"></span>${name} ${n}</label>`);
+}
+for (const f of POI.features) {
+  const [lng, lat] = f.geometry.coordinates, k = f.properties.c;
+  L.circleMarker([lat, lng], { radius: 5, color: CAT[k][1], weight: 1, fillOpacity: .8 })
+    .bindTooltip(`${CAT[k][0]}${f.properties.n ? " · " + f.properties.n : ""}`).addTo(groups[k]);
+}
+function syncPoi() {
+  for (const k in groups) {
+    const on = map.getZoom() >= 14 && document.getElementById("c-" + k).checked;
+    on ? groups[k].addTo(map) : groups[k].remove();
+  }
+  document.getElementById("zv").textContent = map.getZoom();
+}
+catsEl.onchange = syncPoi; map.on("zoomend", syncPoi); syncPoi();
+
+// 검색: 좌표 직접 입력 → OpenStreetMap(Nominatim, 한국어·영어·일본어 지명) → 국토지리원 주소 검색.
+// 지도 범위(도쿄·가나가와·지바) 안의 결과만 쓴다.
+let pin = null;
+const resEl = document.getElementById("results");
+const inArea = (lat, lng) => lat >= s && lat <= n && lng >= w && lng <= e;
+async function nominatim(q) {
+  const u = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&countrycodes=jp&bounded=1" +
+    `&viewbox=${w},${n},${e},${s}&accept-language=ko,en,ja&q=` + encodeURIComponent(q);
+  const js = await (await fetch(u)).json();
+  return js.map(r => ({ lat: +r.lat, lng: +r.lon, name: r.display_name.split(",").slice(0, 3).join(",") }));
+}
+async function gsiSearch(q) {
+  const js = await (await fetch("https://msearch.gsi.go.jp/address-search/AddressSearch?q=" + encodeURIComponent(q))).json();
+  return js.map(r => ({ lat: r.geometry.coordinates[1], lng: r.geometry.coordinates[0], name: r.properties.title }));
+}
+function goTo(ll, name) {
+  pin && pin.remove();
+  const r = scoreAt(ll), ok = r && r.code > 0;
+  pin = L.marker(ll).addTo(map).bindPopup((name ? `${name}<br>` : "") + (ok
+    ? `안심도 <b>${r.v}</b> ${label(r.v)}${r.code === 2 ? "<br>범죄 자료 없음 (시설만 반영)" : ""}`
+    : "이 위치는 데이터 없음")).openPopup();
+  map.setView(ll, 16);
+}
+async function search() {
+  const q = document.getElementById("q").value.trim();
+  if (!q) return;
+  resEl.textContent = "찾는 중…";
+  const m = q.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
+  if (m) { resEl.textContent = ""; goTo(L.latLng(+m[1], +m[2])); return; }
+  let hits = [];
+  try { hits = await nominatim(q); } catch (_) {}
+  if (!hits.length) { try { hits = await gsiSearch(q); } catch (_) {} }
+  hits = hits.filter(h => inArea(h.lat, h.lng));
+  if (!hits.length) { resEl.textContent = "찾지 못했어요. 역·동네 이름(한국어·영어·일본어)이나 구글맵에서 복사한 좌표를 넣어보세요."; return; }
+  goTo(L.latLng(hits[0].lat, hits[0].lng), hits[0].name);
+  // 후보가 여러 개면 목록으로 보여줘서 다른 곳을 고를 수 있게
+  resEl.innerHTML = hits.length > 1 ? "다른 후보: " : "";
+  hits.slice(1).forEach(h => {
+    const a = document.createElement("a");
+    a.href = "#"; a.textContent = h.name; a.style.display = "block";
+    a.onclick = ev => { ev.preventDefault(); goTo(L.latLng(h.lat, h.lng), h.name); };
+    resEl.appendChild(a);
+  });
+}
+document.getElementById("go").onclick = search;
+document.getElementById("fold").onclick = ev => {
+  const f = document.getElementById("panel").classList.toggle("folded");
+  ev.target.textContent = f ? "펼치기" : "접기";
+  ev.target.setAttribute("aria-expanded", String(!f));
+};
+if (window.innerWidth < 600) document.getElementById("fold").click();
+document.getElementById("q").addEventListener("keydown", ev => { if (ev.key === "Enter") search(); });
+document.getElementById("gm").onclick = () => {
+  const c = map.getCenter();
+  window.open(`https://www.google.com/maps/@${c.lat.toFixed(6)},${c.lng.toFixed(6)},${map.getZoom()}z`, "_blank");
+};
+const mix = META.mix || {};
+document.getElementById("info").textContent =
+  `격자 ${META.cell_m}m · 시설 ${Math.round((mix.poi || 0) * 100)}% / 범죄 ${Math.round((mix.crime || 0) * 100)}% 반영` +
+  (META.sources ? ` · ${META.sources}` : "");
+</script>
+</body>
+</html>

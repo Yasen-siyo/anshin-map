@@ -1,0 +1,43 @@
+{
+ "bounds": [
+  [
+   34.889230270321704,
+   138.9
+  ],
+  [
+   36.11,
+   140.88064758457142
+  ]
+ ],
+ "cell_m": 100,
+ "nx": 1795,
+ "ny": 1359,
+ "poi_counts": {
+  "bar": 3794,
+  "pachinko": 784,
+  "nightclub": 249,
+  "adult_shop": 30,
+  "love_hotel": 751,
+  "brothel": 469,
+  "gambling": 131,
+  "hookah": 13,
+  "stripclub": 10
+ },
+ "mix": {
+  "poi": 0.55,
+  "crime": 0.45
+ },
+ "weights": {
+  "stripclub": 4.0,
+  "brothel": 4.0,
+  "nightclub": 3.0,
+  "pachinko": 2.5,
+  "gambling": 2.0,
+  "adult_shop": 2.0,
+  "love_hotel": 2.0,
+  "bar": 1.0,
+  "hookah": 0.5
+ },
+ "no_crime_prefs": [],
+ "sources": "범죄: 경시청·가나가와현경·지바현경 2025년 町丁별 거리 범죄 6종 · 시설: OpenStreetMap"
+}
