@@ -1,0 +1,8 @@
+# 내려받은 원자료 (용량이 큼, scripts/fetch_data.sh 로 다시 받기)
+data/raw/*
+!data/raw/.gitkeep
+
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
