@@ -65,7 +65,7 @@ bash scripts/fetch_data.sh        # 경찰 통계·경계 (약 120MB)
 python3 scripts/fetch_osm.py      # OSM 시설 (Overpass 서버 상태에 따라 오래 걸릴 수 있음)
 python3 scripts/prep_crime.py
 python3 scripts/score.py
-python3 scripts/build_page.py     # → index.html, web/anshin-map.html
+python3 scripts/build_page.py     # → index.html
 python3 scripts/check.py
 ```
 

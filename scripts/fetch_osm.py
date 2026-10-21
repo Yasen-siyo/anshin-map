@@ -21,7 +21,6 @@ STEP = 0.25  # 칸 크기 (도)
 
 ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
-    "http://overpass-api.de/api/interpreter",
 ]
 
 QUERY = """

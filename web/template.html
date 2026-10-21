@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
+<!-- 페이지가 불러올 수 있는 곳을 지도 타일·검색 서버로만 묶는다. 인라인 스크립트는 build_page.py 가 넣는 해시로만 허용 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src https://cdnjs.cloudflare.com '/*SCRIPT_HASH*/'; style-src https://cdnjs.cloudflare.com 'unsafe-inline'; img-src data: https://cdnjs.cloudflare.com https://cyberjapandata.gsi.go.jp https://tile.openstreetmap.org https://server.arcgisonline.com; connect-src https://nominatim.openstreetmap.org https://msearch.gsi.go.jp; base-uri 'none'; form-action 'none'">
 <title>숙박 안심도 지도</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
@@ -149,15 +151,18 @@ img.onload = () => {
   grid = ctx.getImageData(0, 0, c.width, c.height).data;
 };
 img.src = ANSHIN;
-const [[s, w], [n, e]] = META.bounds;
+const [[south, west], [north, east]] = META.bounds;
+const inArea = (lat, lng) => lat >= south && lat <= north && lng >= west && lng <= east;
 const y = lat => Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360));
 function scoreAt(ll) {
-  if (!grid || ll.lat < s || ll.lat > n || ll.lng < w || ll.lng > e) return null;
-  const j = Math.floor((ll.lng - w) / (e - w) * META.nx);
-  const i = Math.floor((y(n) - y(ll.lat)) / (y(n) - y(s)) * META.ny);
+  if (!grid || !inArea(ll.lat, ll.lng)) return null;
+  const j = Math.floor((ll.lng - west) / (east - west) * META.nx);
+  const i = Math.floor((y(north) - y(ll.lat)) / (y(north) - y(south)) * META.ny);
   const k = (i * META.nx + j) * 4;
   return { v: grid[k], code: grid[k + 1] };
 }
+// 시설 이름·검색 결과 지명은 누구나 고칠 수 있는 OSM 데이터라 HTML 로 넣기 전에 이스케이프한다
+const esc = s => String(s).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
 function label(v) { return v >= 80 ? "안심" : v >= 60 ? "보통" : v >= 40 ? "주의" : "위험"; }
 // PC 는 마우스를 올리면, 폰은 탭하면 점수를 보여준다
 const showScore = ev => {
@@ -174,14 +179,14 @@ const groups = {};
 const catsEl = document.getElementById("cats");
 for (const [k, [name, color]] of Object.entries(CAT)) {
   groups[k] = L.layerGroup();
-  const n = (META.poi_counts || {})[k] || 0;
+  const count = (META.poi_counts || {})[k] || 0;
   catsEl.insertAdjacentHTML("beforeend",
-    `<label><input type="checkbox" id="c-${k}" checked><span class="dot" style="background:${color}"></span>${name} ${n}</label>`);
+    `<label><input type="checkbox" id="c-${k}" checked><span class="dot" style="background:${color}"></span>${name} ${count}</label>`);
 }
 for (const f of POI.features) {
   const [lng, lat] = f.geometry.coordinates, k = f.properties.c;
   L.circleMarker([lat, lng], { radius: 5, color: CAT[k][1], weight: 1, fillOpacity: .8 })
-    .bindTooltip(`${CAT[k][0]}${f.properties.n ? " · " + f.properties.n : ""}`).addTo(groups[k]);
+    .bindTooltip(`${CAT[k][0]}${f.properties.n ? " · " + esc(f.properties.n) : ""}`).addTo(groups[k]);
 }
 function syncPoi() {
   for (const k in groups) {
@@ -196,10 +201,9 @@ catsEl.onchange = syncPoi; map.on("zoomend", syncPoi); syncPoi();
 // 지도 범위(도쿄·가나가와·지바) 안의 결과만 쓴다.
 let pin = null;
 const resEl = document.getElementById("results");
-const inArea = (lat, lng) => lat >= s && lat <= n && lng >= w && lng <= e;
 async function nominatim(q) {
   const u = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&countrycodes=jp&bounded=1" +
-    `&viewbox=${w},${n},${e},${s}&accept-language=ko,en,ja&q=` + encodeURIComponent(q);
+    `&viewbox=${west},${north},${east},${south}&accept-language=ko,en,ja&q=` + encodeURIComponent(q);
   const js = await (await fetch(u)).json();
   return js.map(r => ({ lat: +r.lat, lng: +r.lon, name: r.display_name.split(",").slice(0, 3).join(",") }));
 }
@@ -210,7 +214,7 @@ async function gsiSearch(q) {
 function goTo(ll, name) {
   pin && pin.remove();
   const r = scoreAt(ll), ok = r && r.code > 0;
-  pin = L.marker(ll).addTo(map).bindPopup((name ? `${name}<br>` : "") + (ok
+  pin = L.marker(ll).addTo(map).bindPopup((name ? `${esc(name)}<br>` : "") + (ok
     ? `안심도 <b>${r.v}</b> ${label(r.v)}${r.code === 2 ? "<br>범죄 자료 없음 (시설만 반영)" : ""}`
     : "이 위치는 데이터 없음")).openPopup();
   map.setView(ll, 16);
@@ -246,7 +250,7 @@ if (window.innerWidth < 600) document.getElementById("fold").click();
 document.getElementById("q").addEventListener("keydown", ev => { if (ev.key === "Enter") search(); });
 document.getElementById("gm").onclick = () => {
   const c = map.getCenter();
-  window.open(`https://www.google.com/maps/@${c.lat.toFixed(6)},${c.lng.toFixed(6)},${map.getZoom()}z`, "_blank");
+  window.open(`https://www.google.com/maps/@${c.lat.toFixed(6)},${c.lng.toFixed(6)},${map.getZoom()}z`, "_blank", "noopener");
 };
 const mix = META.mix || {};
 document.getElementById("info").textContent =
