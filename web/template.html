@@ -40,7 +40,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .hint { font-size: 11px; color: var(--muted); }
 details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
-.panel.folded > :not(:first-child) { display: none; }
+.panel.folded > :not(:first-child):not(.keep) { display: none; }
+#scoreBtn { display: none; }
+.panel.folded #scoreBtn { display: inline-block; }
+#scoreBtn[aria-pressed="true"] { background: var(--accent); color: #fff; }
 @media (max-width: 600px) {
   /* 휴대폰에서는 오른쪽 위 레이어 버튼과 겹치지 않게 패널을 화면 아래로 내린다 */
   .panel { top: auto; left: calc(8px + env(safe-area-inset-left)); right: calc(8px + env(safe-area-inset-right));
@@ -55,12 +58,13 @@ details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
 <body>
 <div id="map"></div>
 <div class="panel" id="panel">
-  <div class="row" style="justify-content:space-between"><h1>숙박 안심도 지도</h1><button class="ghost" id="fold" aria-expanded="true">접기</button></div>
+  <div class="row" style="justify-content:space-between"><h1>숙박 안심도 지도</h1>
+    <span class="row"><button class="ghost" id="scoreBtn" aria-pressed="false" aria-controls="scorebox">점수</button><button class="ghost" id="fold" aria-expanded="true">접기</button></span></div>
   <div class="row">
     <input type="text" id="q" placeholder="신주쿠, Shinjuku, 新宿駅, 또는 35.69, 139.70">
     <button id="go">찾기</button>
   </div>
-  <div>
+  <div id="scorebox">
     <div class="label">커서 위치 안심도</div>
     <div class="score"><b id="sv">–</b><span id="sl" class="hint">지도 위에 마우스를 올리거나 탭하세요</span></div>
     <div class="legend"></div>
@@ -249,6 +253,17 @@ document.getElementById("fold").onclick = ev => {
   ev.target.textContent = f ? "펼치기" : "접기";
   ev.target.setAttribute("aria-expanded", String(!f));
 };
+// 접은 상태에서도 점수 칸만 따로 켜고 끌 수 있다 (휴대폰에서 지도를 넓게 보면서 점수 확인)
+const scoreBtn = document.getElementById("scoreBtn");
+const setScoreOnly = on => {
+  document.getElementById("scorebox").classList.toggle("keep", on);
+  scoreBtn.setAttribute("aria-pressed", String(on));
+  try { localStorage.setItem("scoreOnly", on ? "1" : "0"); } catch (e) {}
+};
+scoreBtn.onclick = () => setScoreOnly(scoreBtn.getAttribute("aria-pressed") !== "true");
+let scoreOnly = true;
+try { scoreOnly = localStorage.getItem("scoreOnly") !== "0"; } catch (e) {}
+setScoreOnly(scoreOnly);
 if (window.innerWidth < 600) document.getElementById("fold").click();
 // 휴대폰에서 출처 표기 줄이 패널 밑에 깔리지 않게, 표기 높이를 재서 패널을 그 위로 올린다
 (() => {
