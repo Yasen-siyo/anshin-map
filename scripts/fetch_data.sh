@@ -27,7 +27,7 @@ estat() {  # $1 = 현 코드, $2 = 저장 폴더
   get "https://www.e-stat.go.jp/gis/statmap-search/data?dlserveyId=A002005212020&code=$1&coordSys=1&format=shape&downloadType=5&datum=2000" "$z"
   unzip -oq "$z" -d "$2"; rm -f "$z"
 }
-for c in 12 13 14; do estat $c "$RAW/boundary"; done
-for c in 08 11 19 22; do estat $c "$RAW/boundary/neighbors"; done   # 데이터 없음 표시용 이웃 현
+for c in 12 13 14 27 40; do estat $c "$RAW/boundary"; done                  # 도쿄권 3현, 오사카, 후쿠오카
+for c in 08 11 19 22 26 28 29 41; do estat $c "$RAW/boundary/neighbors"; done # 데이터 없음 표시용 이웃 현
 
 echo "완료. 다음: python3 scripts/fetch_osm.py"

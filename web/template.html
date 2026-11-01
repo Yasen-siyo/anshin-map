@@ -24,6 +24,8 @@ html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); f
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
   display: flex; flex-direction: column; gap: 10px; backdrop-filter: blur(6px); }
 .panel h1 { font-size: 15px; margin: 0; }
+.regions button { padding: 3px 9px; font-size: 13px; }
+.regions button[aria-pressed="true"] { background: var(--accent); color: #fff; }
 .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .row input[type=text] { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--input-bg); color: var(--fg);
   -webkit-text-fill-color: var(--fg); caret-color: var(--fg); font: inherit; font-size: 16px; }
@@ -60,8 +62,9 @@ details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
 <div class="panel" id="panel">
   <div class="row" style="justify-content:space-between"><h1>숙박 안심도 지도</h1>
     <span class="row"><button class="ghost" id="scoreBtn" aria-pressed="false" aria-controls="scorebox">점수</button><button class="ghost" id="fold" aria-expanded="true">접기</button></span></div>
+  <div class="row regions" id="regions" role="group" aria-label="지역"></div>
   <div class="row">
-    <input type="text" id="q" placeholder="신주쿠, Shinjuku, 新宿駅, 또는 35.69, 139.70">
+    <input type="text" id="q" placeholder="신주쿠, 난바, 나카스, 또는 35.69, 139.70">
     <button id="go">찾기</button>
   </div>
   <div id="scorebox">
@@ -91,11 +94,10 @@ details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
-const META = /*META*/null;
-const HEAT = "/*HEAT*/";
-const ANSHIN = "/*ANSHIN*/";
-const COVER = "/*COVER*/";
-const POI = /*POI*/null;
+// 시설 이름·검색 결과 지명은 누구나 고칠 수 있는 OSM 데이터라 HTML 로 넣기 전에 이스케이프한다
+const esc = s => String(s).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
+// 지역마다 따로 만든 히트맵·점수표·범위 이미지와 시설 점 (build_page.py 가 채움)
+const REGIONS = /*REGIONS*/null;
 
 const CAT = {
   stripclub: ["스트립클럽", "#7e22ce"], brothel: ["성매매 업소", "#7e22ce"], nightclub: ["나이트클럽", "#db2777"],
@@ -103,9 +105,12 @@ const CAT = {
   love_hotel: ["러브호텔", "#e11d48"], bar: ["바", "#2563eb"], hookah: ["물담배", "#0891b2"],
 };
 
-const map = L.map("map", { zoomControl: true }).setView([35.681, 139.767], 12);
+let startRegion = REGIONS[0];
+try { startRegion = REGIONS.find(r => r.meta.id === localStorage.getItem("region")) || startRegion; } catch (e) {}
+const map = L.map("map", { zoomControl: true }).setView(startRegion.meta.center, startRegion.meta.zoom);
 // 히트맵에 쓴 데이터의 출처 표기 (OSM 은 ODbL 상 표기 의무)
-map.attributionControl.addAttribution('시설 데이터 &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> (ODbL) · 범죄: 경시청·가나가와현경·지바현경 · 경계: e-Stat');
+const crimeSrc = [...new Set(REGIONS.flatMap(r => r.meta.crime_src ? r.meta.crime_src.split(" · ") : []))].join("·");
+map.attributionControl.addAttribution('시설 데이터 &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> (ODbL) · 범죄: ' + esc(crimeSrc) + ' · 경계: e-Stat');
 const gsi = L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png", {
   maxZoom: 18, attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html">国土地理院</a>' });
 const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -120,13 +125,15 @@ const esriGrayLabel = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/s
 const gray = L.layerGroup([esriGray, esriGrayLabel]);
 esri.addTo(map);
 
-const heat = L.imageOverlay(HEAT, META.bounds, { opacity: 0.65, interactive: false, className: "heat" }).addTo(map);
+const heats = REGIONS.map(r => L.imageOverlay(r.heat, r.meta.bounds, { opacity: 0.65, interactive: false, className: "heat" }));
+const heat = L.layerGroup(heats).addTo(map);
 L.control.layers({ "영어 도로 지도 (Esri)": esri, "영어 연회색 지도 (Esri, 줌 16까지)": gray, "일본어 연한 지도 (국토지리원)": gsi, "OpenStreetMap (일본어)": osm }, { "안심도 히트맵": heat }).addTo(map);
 // 데이터 범위: 경계선과 빗금을 각각 켜고 끌 수 있게 같은 이미지를 두 장 겹친다
 // (빗금 이미지는 CSS 로 경계선 색만, 경계선 이미지는 빗금만 숨길 수 없어 캔버스로 나눈다)
-const coverEdge = L.imageOverlay(COVER, META.bounds, { interactive: false, opacity: 1 });
-const coverNone = L.imageOverlay(COVER, META.bounds, { interactive: false, opacity: 1 });
-(() => {
+const coverEdge = L.layerGroup(), coverNone = L.layerGroup();
+for (const r of REGIONS) {
+  const edge = L.imageOverlay(r.cover, r.meta.bounds, { interactive: false, opacity: 1 }).addTo(coverEdge);
+  const none = L.imageOverlay(r.cover, r.meta.bounds, { interactive: false, opacity: 1 }).addTo(coverNone);
   const im = new Image();
   im.onload = () => {
     const mk = keep => {
@@ -136,40 +143,47 @@ const coverNone = L.imageOverlay(COVER, META.bounds, { interactive: false, opaci
       for (let i = 0; i < a.length; i += 4) if ((a[i + 3] === 255 && a[i + 2] === 120) !== keep) a[i + 3] = 0;
       x.putImageData(d, 0, 0); return c.toDataURL();
     };
-    coverEdge.setUrl(mk(true)); coverNone.setUrl(mk(false));
-    syncCover();
+    edge.setUrl(mk(true)); none.setUrl(mk(false));
   };
-  im.src = COVER;
-})();
+  im.src = r.cover;
+}
+syncCover();
 function syncCover() {
   document.getElementById("cv-edge").checked ? coverEdge.addTo(map) : coverEdge.remove();
   document.getElementById("cv-none").checked ? coverNone.addTo(map) : coverNone.remove();
 }
 document.getElementById("cv-edge").onchange = syncCover;
 document.getElementById("cv-none").onchange = syncCover;
-document.getElementById("op").oninput = e => heat.setOpacity(e.target.value / 100);
+document.getElementById("op").oninput = e => heats.forEach(h => h.setOpacity(e.target.value / 100));
 
 // 점수 조회용: 안심도 PNG(회색조)를 캔버스로 읽어 픽셀값을 가져온다
-let grid = null;
-const img = new Image();
-img.onload = () => {
-  const c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
-  const ctx = c.getContext("2d"); ctx.drawImage(img, 0, 0);
-  grid = ctx.getImageData(0, 0, c.width, c.height).data;
+for (const r of REGIONS) {
+  r.grid = null;
+  const img = new Image();
+  img.onload = () => {
+    const c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
+    const ctx = c.getContext("2d"); ctx.drawImage(img, 0, 0);
+    r.grid = ctx.getImageData(0, 0, c.width, c.height).data;
+  };
+  img.src = r.anshin;
+}
+const inRegion = (r, lat, lng) => {
+  const [[s, w], [n, e]] = r.meta.bounds;
+  return lat >= s && lat <= n && lng >= w && lng <= e;
 };
-img.src = ANSHIN;
-const [[south, west], [north, east]] = META.bounds;
-const inArea = (lat, lng) => lat >= south && lat <= north && lng >= west && lng <= east;
+const regionAt = (lat, lng) => REGIONS.find(r => inRegion(r, lat, lng));
+const inArea = (lat, lng) => !!regionAt(lat, lng);
 const y = lat => Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360));
 function scoreAt(ll) {
-  if (!grid || !inArea(ll.lat, ll.lng)) return null;
-  const j = Math.floor((ll.lng - west) / (east - west) * META.nx);
-  const i = Math.floor((y(north) - y(ll.lat)) / (y(north) - y(south)) * META.ny);
-  const k = (i * META.nx + j) * 4;
-  return { v: grid[k], code: grid[k + 1] };
+  const r = regionAt(ll.lat, ll.lng);
+  if (!r || !r.grid) return null;
+  const M = r.meta, [[south, west], [north, east]] = M.bounds;
+  const j = Math.floor((ll.lng - west) / (east - west) * M.nx);
+  const i = Math.floor((y(north) - y(ll.lat)) / (y(north) - y(south)) * M.ny);
+  if (i < 0 || j < 0 || i >= M.ny || j >= M.nx) return null;
+  const k = (i * M.nx + j) * 4;
+  return { v: r.grid[k], code: r.grid[k + 1] };
 }
-// 시설 이름·검색 결과 지명은 누구나 고칠 수 있는 OSM 데이터라 HTML 로 넣기 전에 이스케이프한다
-const esc = s => String(s).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
 function label(v) { return v >= 80 ? "안심" : v >= 60 ? "보통" : v >= 40 ? "주의" : "위험"; }
 // PC 는 마우스를 올리면, 폰은 탭하면 점수를 보여준다
 const showScore = ev => {
@@ -186,11 +200,11 @@ const groups = {};
 const catsEl = document.getElementById("cats");
 for (const [k, [name, color]] of Object.entries(CAT)) {
   groups[k] = L.layerGroup();
-  const count = (META.poi_counts || {})[k] || 0;
+  const count = REGIONS.reduce((n, r) => n + ((r.meta.poi_counts || {})[k] || 0), 0);
   catsEl.insertAdjacentHTML("beforeend",
     `<label><input type="checkbox" id="c-${k}" checked><span class="dot" style="background:${color}"></span>${name} ${count}</label>`);
 }
-for (const f of POI.features) {
+for (const f of REGIONS.flatMap(r => r.poi.features)) {
   const [lng, lat] = f.geometry.coordinates, k = f.properties.c;
   L.circleMarker([lat, lng], { radius: 5, color: CAT[k][1], weight: 1, fillOpacity: .8 })
     .bindTooltip(`${CAT[k][0]}${f.properties.n ? " · " + esc(f.properties.n) : ""}`).addTo(groups[k]);
@@ -205,12 +219,13 @@ function syncPoi() {
 catsEl.onchange = syncPoi; map.on("zoomend", syncPoi); syncPoi();
 
 // 검색: 좌표 직접 입력 → OpenStreetMap(Nominatim, 한국어·영어·일본어 지명) → 국토지리원 주소 검색.
-// 지도 범위(도쿄·가나가와·지바) 안의 결과만 쓴다.
+// 지도의 지역(도쿄권·오사카·후쿠오카) 안의 결과만 쓴다. 지금 보고 있는 지역을 먼저 찾고, 없으면 전체에서 찾는다.
 let pin = null;
 const resEl = document.getElementById("results");
-async function nominatim(q) {
-  const u = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&countrycodes=jp&bounded=1" +
-    `&viewbox=${west},${north},${east},${south}&accept-language=ko,en,ja&q=` + encodeURIComponent(q);
+async function nominatim(q, r) {
+  const box = r ? `&bounded=1&viewbox=${r.meta.bounds[0][1]},${r.meta.bounds[1][0]},${r.meta.bounds[1][1]},${r.meta.bounds[0][0]}` : "";
+  const u = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=${r ? 6 : 10}&countrycodes=jp${box}` +
+    "&accept-language=ko,en,ja&q=" + encodeURIComponent(q);
   const js = await (await fetch(u)).json();
   return js.map(r => ({ lat: +r.lat, lng: +r.lon, name: r.display_name.split(",").slice(0, 3).join(",") }));
 }
@@ -233,9 +248,10 @@ async function search() {
   const m = q.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
   if (m) { resEl.textContent = ""; goTo(L.latLng(+m[1], +m[2])); return; }
   let hits = [];
-  try { hits = await nominatim(q); } catch (_) {}
-  if (!hits.length) { try { hits = await gsiSearch(q); } catch (_) {} }
-  hits = hits.filter(h => inArea(h.lat, h.lng));
+  const here = map.getCenter(), cur = regionAt(here.lat, here.lng);
+  if (cur) { try { hits = await nominatim(q, cur); } catch (_) {} }
+  if (!hits.length) { try { hits = (await nominatim(q)).filter(h => inArea(h.lat, h.lng)); } catch (_) {} }
+  if (!hits.length) { try { hits = (await gsiSearch(q)).filter(h => inArea(h.lat, h.lng)); } catch (_) {} }
   if (!hits.length) { resEl.textContent = "찾지 못했어요. 역·동네 이름(한국어·영어·일본어)이나 구글맵에서 복사한 좌표를 넣어보세요."; return; }
   goTo(L.latLng(hits[0].lat, hits[0].lng), hits[0].name);
   // 후보가 여러 개면 목록으로 보여줘서 다른 곳을 고를 수 있게
@@ -279,10 +295,26 @@ document.getElementById("gm").onclick = () => {
   const c = map.getCenter();
   window.open(`https://www.google.com/maps/@${c.lat.toFixed(6)},${c.lng.toFixed(6)},${map.getZoom()}z`, "_blank", "noopener");
 };
-const mix = META.mix || {};
-document.getElementById("info").textContent =
-  `격자 ${META.cell_m}m · 시설 ${Math.round((mix.poi || 0) * 100)}% / 범죄 ${Math.round((mix.crime || 0) * 100)}% 반영` +
-  (META.sources ? ` · ${META.sources}` : "");
+// 지역 버튼과, 지금 보는 지역의 자료 안내
+const regEl = document.getElementById("regions");
+for (const r of REGIONS) {
+  const b = document.createElement("button");
+  b.className = "ghost"; b.textContent = r.meta.name;
+  b.onclick = () => map.setView(r.meta.center, r.meta.zoom);
+  r.btn = b; regEl.appendChild(b);
+}
+function syncRegion() {
+  const c = map.getCenter(), r = regionAt(c.lat, c.lng);
+  for (const x of REGIONS) x.btn.setAttribute("aria-pressed", String(x === r));
+  if (!r) { document.getElementById("info").textContent = "지도 범위: " + REGIONS.map(x => x.meta.name).join(" · "); return; }
+  try { localStorage.setItem("region", r.meta.id); } catch (e) {}
+  const M = r.meta, mix = M.mix || {};
+  document.getElementById("info").textContent =
+    `${M.name} · 격자 ${M.cell_m}m · ` +
+    (M.crime_src ? `시설 ${Math.round((mix.poi || 0) * 100)}% / 범죄 ${Math.round((mix.crime || 0) * 100)}% 반영 · 범죄: ${M.crime_src} 2025년 町丁별 거리 범죄 6종`
+                 : "범죄 자료 없음, 시설만 반영") + " · 시설: OpenStreetMap";
+}
+map.on("moveend", syncRegion); syncRegion();
 </script>
 </body>
 </html>

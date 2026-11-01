@@ -5,13 +5,14 @@
   data/raw/crime_normalized.csv    (선택) prep_crime.py 결과: pref,city,town,<罪種...>
   data/raw/boundary/*.shp          (선택) e-Stat 小地域(町丁・字等) 경계 shapefile
 
-출력 (web/ 아래, 지도 페이지가 그대로 읽음)
+출력 (config.REGIONS 의 지역마다 web/<지역>/ 아래, 지도 페이지가 그대로 읽음)
   heatmap.png   Web Mercator 정렬 RGBA 이미지 (빨강일수록 위험)
+  anshin.png    점수표 (R = 안심도, G = 데이터 범위 코드)
+  coverage.png  데이터 범위 경계선·빗금
   meta.json     이미지 범위, 격자 정보, 카테고리 집계
   poi.geojson   확대 시 표시할 시설 점
 """
 import csv
-import glob
 import json
 import math
 import pathlib
@@ -36,8 +37,7 @@ def merc(lon, lat):
     return x, y
 
 
-def grid():
-    b = C.BBOX
+def grid(b):
     x0, y0 = merc(b["west"], b["south"])
     x1, y1 = merc(b["east"], b["north"])
     # 메르카토르 단위는 위도에 따라 늘어나므로 중심 위도 기준으로 보정
@@ -102,6 +102,10 @@ def load_pois():
     return out
 
 
+def in_bbox(lon, lat, b):
+    return b["west"] <= lon <= b["east"] and b["south"] <= lat <= b["north"]
+
+
 def poi_layer(g, pois):
     acc = np.zeros((g["ny"], g["nx"]), dtype=np.float32)
     for lon, lat, cat, _ in pois:
@@ -117,27 +121,30 @@ def poi_layer(g, pois):
 
 # ---------- 범죄 ----------
 
-TARGET_PREFS = [12, 13, 14]  # 지바·도쿄·가나가와
-PREF_FINE = None  # 촘촘한 격자의 현 코드 (0 = 대상 3개 현 밖 또는 바다)
 FINE = 4  # 町丁 경계를 격자보다 4배 촘촘하게 그린 뒤 평균 (작은 町丁이 사라지지 않게)
 
 
-def crime_layer(g):
-    """町丁별 가중 범죄 밀도(건/km²) 격자와, 범죄 자료가 없는 현이 차지하는 비율 격자를 돌려준다."""
+def pref_shps(folder, codes):
+    return [str(RAW / folder / f"r2ka{int(c):02d}.shp") for c in codes if (RAW / folder / f"r2ka{int(c):02d}.shp").exists()]
+
+
+def crime_layer(g, reg):
+    """町丁별 가중 범죄 밀도(건/km²) 격자, 범죄 자료가 없는 현이 차지하는 비율 격자,
+    촘촘한 현 코드 격자(0 = 대상 현 밖 또는 바다), 범죄 자료가 없는 현 코드 목록을 돌려준다."""
     from PIL import ImageDraw
 
+    B = reg["bbox"]
     csv_path = RAW / "crime_normalized.csv"
-    shps = sorted(glob.glob(str(RAW / "boundary/*.shp")))
-    if not csv_path.exists() or not shps:
-        print("crime data not found, skipping crime layer")
-        return None, None
+    shps = pref_shps("boundary", reg["prefs"])
+    if not shps:
+        raise SystemExit(f"boundary shapefiles for {reg['prefs']} not found (scripts/fetch_data.sh)")
 
     crimes = {}
-    with open(csv_path, encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            key = (norm_name(row["city"]), norm_name(row["town"]))
-            w = sum(float(row.get(k) or 0) * v for k, v in C.CRIME_WEIGHTS.items())
-            crimes[key] = crimes.get(key, 0) + w
+    rows = list(csv.DictReader(open(csv_path, encoding="utf-8"))) if csv_path.exists() else []
+    for row in rows:
+        key = (norm_name(row["city"]), norm_name(row["town"]))
+        w = sum(float(row.get(k) or 0) * v for k, v in C.CRIME_WEIGHTS.items())
+        crimes[key] = crimes.get(key, 0) + w
 
     # 町丁 하나가 여러 도형으로 나뉜 경우가 있어 면적을 키별로 합친다
     areas, recs = [], []
@@ -159,7 +166,7 @@ def crime_layer(g):
     pref_img = Image.new("L", (W, H), 0)
     dd, pd = ImageDraw.Draw(dens_img), ImageDraw.Draw(pref_img)
     # 이웃 현(대상 밖)도 육지로 칠해 두어 "데이터 없음" 빗금을 바다와 구분한다
-    for shp in sorted(glob.glob(str(RAW / "boundary/neighbors/*.shp"))):
+    for shp in pref_shps("boundary/neighbors", reg["neighbors"]):
         rows = read_dbf(shp[:-4] + ".dbf")
         for rec, rings in zip(rows, read_shp_polygons(shp)):
             if rec["HCODE"] == "8154":
@@ -168,11 +175,12 @@ def crime_layer(g):
                 if len(ring) < 3:
                     continue
                 x, y = ring[:, 0], ring[:, 1]
-                if x.max() < C.BBOX["west"] or x.min() > C.BBOX["east"] or y.max() < C.BBOX["south"] or y.min() > C.BBOX["north"]:
+                if x.max() < B["west"] or x.min() > B["east"] or y.max() < B["south"] or y.min() > B["north"]:
                     continue
                 mx, my = merc(x, y)
                 pd.polygon(list(zip(((mx - g["x0"]) / step).tolist(), ((g["y1"] - my) / step).tolist())), fill=int(rec["PREF"]))
     matched = 0
+    matched_pref = {}
     # 큰 도형부터 그려서 안쪽에 들어 있는 작은 町丁이 위에 덮이게 한다 (구멍 링은 무시)
     recs.sort(key=lambda r: -float(r[0]["AREA"] or 0))
     for rec, rings in recs:
@@ -183,11 +191,14 @@ def crime_layer(g):
             dens = w / (key_area[k] / 1e6)
             matched += 1
         pref = int(rec["PREF"])
+        matched_pref[pref] = matched_pref.get(pref, 0) + (w is not None)
         for ring in rings:
             if len(ring) < 3:
                 continue
             # 시계 방향(외곽) 링만 그린다
             x, y = ring[:, 0], ring[:, 1]
+            if x.max() < B["west"] or x.min() > B["east"] or y.max() < B["south"] or y.min() > B["north"]:
+                continue
             if np.sum((x[1:] - x[:-1]) * (y[1:] + y[:-1])) <= 0:
                 continue
             mx, my = merc(x, y)
@@ -197,20 +208,22 @@ def crime_layer(g):
             dd.polygon(pts, fill=float(dens))
             pd.polygon(pts, fill=pref)
     print(f"crime: {matched}/{len(recs)} boundary polygons have crime data, {len(crimes)} crime rows")
+    # 범죄 자료가 하나도 맞지 않는 현은 아직 자료가 없는 것으로 보고 시설 점수만 쓴다
+    no_crime_codes = sorted({int(c) for c in C.NO_CRIME_PREFS} | {p for p, n in matched_pref.items() if n == 0})
+    if no_crime_codes:
+        print(f"no crime data for prefs {no_crime_codes}: facility score only")
 
     def block_mean(a):
         return a.reshape(g["ny"], FINE, g["nx"], FINE).mean(axis=(1, 3))
 
     dens = block_mean(np.asarray(dens_img, dtype=np.float32))
     pref = np.asarray(pref_img)
-    global PREF_FINE
-    PREF_FINE = pref
     no_crime = np.zeros((g["ny"], g["nx"]), dtype=np.float32)
     land = block_mean((pref > 0).astype(np.float32))
-    for code in C.NO_CRIME_PREFS:
-        no_crime += block_mean((pref == int(code)).astype(np.float32))
+    for code in no_crime_codes:
+        no_crime += block_mean((pref == code).astype(np.float32))
     no_crime = np.where(land > 0, no_crime / np.maximum(land, 1e-6), 0)
-    return gaussian(dens, 1.5), gaussian(no_crime, 1.5)
+    return gaussian(dens, 1.5), gaussian(no_crime, 1.5), pref, no_crime_codes
 
 
 # ---------- 합성·렌더 ----------
@@ -240,18 +253,16 @@ def colorize(risk):
     return np.dstack([rgb, alpha]).astype(np.uint8)
 
 
-def coverage(g, missing_poi):
+def coverage(g, missing_poi, out, pref, targets, no_crime_codes):
     """데이터가 있는 곳/없는 곳을 나타내는 이미지와 점수표용 코드 격자를 만든다.
 
     코드: 0 = 대상 밖(점수 없음), 1 = 시설+범죄, 2 = 시설만(범죄 자료 없음)
     coverage.png: 범죄 자료가 없는 지역에 회색 빗금, 자료가 있는 지역 둘레에 진한 선 (격자의 2배 해상도)
     """
-    pref = PREF_FINE
     half = FINE // 2
-    no_crime_codes = [int(c) for c in C.NO_CRIME_PREFS]
     # 점수표용 코드 (100m 격자): 칸 안에서 가장 많은 쪽
     blocks = pref.reshape(g["ny"], FINE, g["nx"], FINE)
-    land = np.isin(blocks, TARGET_PREFS).mean(axis=(1, 3))
+    land = np.isin(blocks, targets).mean(axis=(1, 3))
     nc = np.isin(blocks, no_crime_codes).mean(axis=(1, 3))
     code = np.where(land < 0.25, 0, np.where(nc > land / 2, 2, 1)).astype(np.uint8)
     for s_, w_, n_, e_ in missing_poi:  # Overpass 에서 못 받은 칸은 데이터 없음으로
@@ -272,38 +283,37 @@ def coverage(g, missing_poi):
     img[nod] = (110, 110, 120, 70)
     img[nod & hatch] = (70, 70, 80, 200)
     # 경계선: 범죄+시설 자료가 모두 있는 지역의 둘레
-    cov = np.isin(p2, TARGET_PREFS) & (code2 == 1)
+    cov = np.isin(p2, targets) & (code2 == 1)
     edge = np.zeros_like(cov)
     for di, dj in ((0, 1), (1, 0), (0, -1), (-1, 0)):
         edge |= cov & ~np.roll(np.roll(cov, di, 0), dj, 1)
     img[edge] = (15, 60, 120, 255)
-    Image.fromarray(img, "RGBA").save(WEB / "coverage.png", optimize=True)
+    Image.fromarray(img, "RGBA").save(out / "coverage.png", optimize=True)
     return code
 
 
-def main():
-    g = grid()
-    print(f"grid {g['nx']}x{g['ny']} cells of {C.CELL_M}m")
-    pois = load_pois()
+def build_region(rid, reg, all_pois, missing):
+    b = reg["bbox"]
+    out = WEB / rid
+    out.mkdir(parents=True, exist_ok=True)
+    g = grid(b)
+    print(f"[{rid}] grid {g['nx']}x{g['ny']} cells of {C.CELL_M}m")
+    pois = [p for p in all_pois if in_bbox(p[0], p[1], b)]
     poi = normalize(poi_layer(g, pois), *C.POI_RANGE)
-    crime_raw, no_crime = crime_layer(g)
-    if crime_raw is None:
-        risk = poi
-        mix = {"poi": 1.0, "crime": 0.0}
-    elif not pois:
+    crime_raw, no_crime, pref, no_crime_codes = crime_layer(g, reg)
+    if not pois:
         risk = normalize(crime_raw, *C.CRIME_RANGE)
         mix = {"poi": 0.0, "crime": 1.0}
     else:
         mixed = combine(poi, normalize(crime_raw, *C.CRIME_RANGE))
-        # 범죄 자료가 없는 현(지바)은 시설 점수만 쓴다
+        # 범죄 자료가 없는 현은 시설 점수만 쓴다
         risk = no_crime * poi + (1 - no_crime) * mixed
         mix = C.MIX
 
-    WEB.mkdir(parents=True, exist_ok=True)
-    missing = json.loads((RAW / "osm_poi.json").read_text()).get("missing_tiles", []) if pois else []
-    code = coverage(g, missing)
+    missing = [t for t in missing if t[0] < b["north"] and t[2] > b["south"] and t[1] < b["east"] and t[3] > b["west"]]
+    code = coverage(g, missing, out, pref, reg["prefs"], no_crime_codes)
     # 대상 밖(이웃 현·바다)에는 색을 칠하지 않는다
-    Image.fromarray(colorize(np.where(code > 0, risk, 0)), "RGBA").save(WEB / "heatmap.png", optimize=True)
+    Image.fromarray(colorize(np.where(code > 0, risk, 0)), "RGBA").save(out / "heatmap.png", optimize=True)
 
     # 지도 페이지에서 마우스 위치 점수를 보여주기 위한 저해상도 점수표 (0~100 안심도)
     # R = 안심도, G = 데이터 범위 코드 (coverage 참고)
@@ -311,30 +321,40 @@ def main():
 
     if not pois:  # 시설 자료가 아직 없으면 범죄 자료 없는 현은 점수 없음
         code[code == 2] = 0
-    Image.fromarray(np.dstack([anshin, code, np.zeros_like(code)]), "RGB").save(WEB / "anshin.png", optimize=True)
+    Image.fromarray(np.dstack([anshin, code, np.zeros_like(code)]), "RGB").save(out / "anshin.png", optimize=True)
 
-    b = C.BBOX
     lon1 = math.degrees((g["x0"] + g["nx"] * g["step"]) / R)
     lat0 = math.degrees(2 * math.atan(math.exp((g["y1"] - g["ny"] * g["step"]) / R)) - math.pi / 2)
     counts = {}
     for *_, cat, _ in pois:
         counts[cat] = counts.get(cat, 0) + 1
+    has_crime = [p for p in reg["prefs"] if p not in no_crime_codes]
     meta = dict(
+        id=rid, name=reg["name"], center=reg["center"], zoom=reg["zoom"],
         bounds=[[lat0, b["west"]], [b["north"], lon1]],
         cell_m=C.CELL_M, nx=g["nx"], ny=g["ny"],
         poi_counts=counts, mix=mix, weights=C.POI_WEIGHTS,
-        no_crime_prefs=C.NO_CRIME_PREFS,
-        sources=C.SOURCES_NOTE,
+        no_crime_prefs=no_crime_codes,
+        crime_src=" · ".join(C.CRIME_SOURCES[p] for p in has_crime) if has_crime else "",
     )
-    (WEB / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1))
+    (out / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1))
 
     feats = [
         {"type": "Feature", "geometry": {"type": "Point", "coordinates": [round(lon, 6), round(lat, 6)]},
          "properties": {"c": cat, "n": name}}
         for lon, lat, cat, name in pois
     ]
-    (WEB / "poi.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": feats}, ensure_ascii=False))
-    print("poi counts:", counts)
+    (out / "poi.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": feats}, ensure_ascii=False))
+    print(f"[{rid}] poi counts:", counts)
+
+
+def main():
+    only = sys.argv[1:]  # 지역 이름을 주면 그 지역만 다시 계산
+    pois = load_pois()
+    missing = json.loads((RAW / "osm_poi.json").read_text()).get("missing_tiles", []) if pois else []
+    for rid, reg in C.REGIONS.items():
+        if not only or rid in only:
+            build_region(rid, reg, pois, missing)
     print("wrote", WEB)
 
 

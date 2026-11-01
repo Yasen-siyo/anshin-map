@@ -3,7 +3,8 @@
 세 현이 공통으로 공개하는 범죄 종류만 쓴다 (경찰청 표준 오픈데이터 수준):
 ひったくり, 車上ねらい, 自販機ねらい, 自動車盗, オートバイ盗, 自転車盗.
 - 도쿄: 경시청 町丁별 罪種·手口별 認知件数 (data/raw/crime/tokyo_R7.csv)
-- 가나가와: 가나가와현경 오픈데이터 수법별 발생 건 목록 (data/raw/crime/kanagawa_2025*.csv)
+- 가나가와·오사카·후쿠오카: 각 현경 오픈데이터 수법별 발생 건 목록 (경찰청 공통 형식,
+  data/raw/crime/{kanagawa,osaka,fukuoka}_2025<수법>.csv)
 - 지바: 지바현경 犯罪発生情報 지도(map.police.chiba.dsvc.jp)의 발생 목록 data/tsv/crime.tsv 중 2025년분
   (路上強盗 분류를 ひったくり 자리에 넣음. 지바는 날치기를 路上強盗로 묶어 공개)
 """
@@ -18,7 +19,8 @@ from geo import norm_name, read_dbf  # noqa: E402
 
 RAW = pathlib.Path(__file__).resolve().parent.parent / "data/raw"
 CATS = ["ひったくり", "車上ねらい", "自販機ねらい", "自動車盗", "オートバイ盗", "自転車盗"]
-KANAGAWA_FILES = {
+# 경찰청 공통 형식 오픈데이터 파일 이름의 수법 부분 → 공통 범죄 종류 (부품ねらい 는 쓰지 않음)
+STD_FILES = {
     "hittakuri": "ひったくり", "syazyounerai": "車上ねらい", "zidouhanbaikinerai": "自販機ねらい",
     "zidousyatou": "自動車盗", "ootobaitou": "オートバイ盗", "zitensyatou": "自転車盗",
 }
@@ -44,22 +46,25 @@ def tokyo(rows_out):
     print(f"tokyo: {len(rows_out)} towns ({skipped} total/unknown rows skipped)")
 
 
-def kanagawa(rows_out):
+def standard(rows_out, prefix, pref_name, year="2025"):
+    """경찰청 공통 형식 (발생 1건 = 1행, 수법별 파일). 파일이 없으면 0건으로 돌려준다."""
     acc = {}
-    for path in sorted(glob.glob(str(RAW / "crime/kanagawa_2025*.csv"))):
-        key = pathlib.Path(path).stem.replace("kanagawa_2025", "")
-        cat = KANAGAWA_FILES.get(key)
+    for path in sorted(glob.glob(str(RAW / f"crime/{prefix}_{year}*.csv"))):
+        key = pathlib.Path(path).stem.replace(f"{prefix}_{year}", "")
+        cat = STD_FILES.get(key)
         if not cat:
             continue
         for r in read_cp932(path):
-            city, town = r["市区町村（発生地）"], r["町丁目（発生地）"]
+            r = {k.strip(): (v or "").strip() for k, v in r.items() if k}
+            city = r.get("市区町村（発生地）") or r.get("市区町村(発生地)", "")
+            town = r.get("町丁目（発生地）") or r.get("町丁目(発生地)", "")
             if not town:
                 continue
             d = acc.setdefault((city, town), {c: 0.0 for c in CATS})
             d[cat] += 1
     for (city, town), d in acc.items():
-        rows_out.append(dict(pref="神奈川県", city=city, town=town, **d))
-    print(f"kanagawa: {len(acc)} towns")
+        rows_out.append(dict(pref=pref_name, city=city, town=town, **d))
+    print(f"{prefix}: {len(acc)} towns")
 
 
 # 지바 지도 데이터의 수법 대분류 코드 → 공통 범죄 종류
@@ -102,22 +107,24 @@ def chiba(rows_out, year="2025"):
 
 
 def main():
-    rows = []
-    tokyo(rows)
-    n = len(rows)
-    kanagawa(rows)
-    n2 = len(rows)
-    chiba(rows)
+    rows, parts = [], []
+    for label, pref, fn in (("tokyo", "13", tokyo),
+                            ("kanagawa", "14", lambda r: standard(r, "kanagawa", "神奈川県")),
+                            ("chiba", "12", chiba),
+                            ("osaka", "27", lambda r: standard(r, "osaka", "大阪府")),
+                            ("fukuoka", "40", lambda r: standard(r, "fukuoka", "福岡県"))):
+        n = len(rows)
+        fn(rows)
+        parts.append((label, pref, rows[n:]))
     with open(RAW / "crime_normalized.csv", "w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=["pref", "city", "town", *CATS])
         w.writeheader()
         w.writerows(rows)
-    # 경계 이름과 얼마나 맞는지 확인
-    keys = set()
-    for p in ("12", "13", "14"):
-        for r in read_dbf(RAW / f"boundary/r2ka{p}.dbf"):
-            keys.add((norm_name(r["CITY_NAME"]), norm_name(r["S_NAME"])))
-    for label, part in (("tokyo", rows[:n]), ("kanagawa", rows[n:n2]), ("chiba", rows[n2:])):
+    # 경계 이름과 얼마나 맞는지 확인 (현마다 그 현 경계와만 비교)
+    for label, pref, part in parts:
+        if not part:
+            continue
+        keys = {(norm_name(r["CITY_NAME"]), norm_name(r["S_NAME"])) for r in read_dbf(RAW / f"boundary/r2ka{pref}.dbf")}
         tot = sum(sum(r[c] for c in CATS) for r in part)
         hit = sum(sum(r[c] for c in CATS) for r in part if (norm_name(r["city"]), norm_name(r["town"])) in keys)
         miss = [r["city"] + r["town"] for r in part if (norm_name(r["city"]), norm_name(r["town"])) not in keys]

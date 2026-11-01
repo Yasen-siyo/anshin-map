@@ -19,8 +19,11 @@ OUT = RAW / "osm_poi.json"
 TILES = RAW / "osm_tiles"
 STEP = 0.25  # 칸 크기 (도)
 
+# 앞에서부터 차례로 시도 (공식 서버가 연결을 끊는 일이 잦아 미러를 함께 둔다)
 ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
 ]
 
 QUERY = """
@@ -54,14 +57,15 @@ def fetch(q):
 
 
 def tiles():
-    b = C.BBOX
-    s = b["south"]
-    while s < b["north"]:
-        w = b["west"]
-        while w < b["east"]:
-            yield round(s, 3), round(w, 3), round(min(s + STEP, b["north"]), 3), round(min(w + STEP, b["east"]), 3)
-            w += STEP
-        s += STEP
+    for reg in C.REGIONS.values():
+        b = reg["bbox"]
+        s = b["south"]
+        while s < b["north"]:
+            w = b["west"]
+            while w < b["east"]:
+                yield round(s, 3), round(w, 3), round(min(s + STEP, b["north"]), 3), round(min(w + STEP, b["east"]), 3)
+                w += STEP
+            s += STEP
 
 
 def merge(missing):
