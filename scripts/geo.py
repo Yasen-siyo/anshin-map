@@ -26,9 +26,11 @@ def norm_name(s):
     """경찰 자료(１丁目)와 e-Stat(一丁目) 표기 차이를 맞춘다."""
     s = unicodedata.normalize("NFKC", s or "")
     s = re.sub(r"\s", "", s)
-    s = s.replace("ヶ", "ケ").replace("ヵ", "カ").replace("が丘", "ケ丘").replace("之", "ノ")
+    s = s.replace("曾", "曽").replace("ヶ", "ケ").replace("ヵ", "カ").replace("が丘", "ケ丘").replace("之", "ノ")
     s = re.sub(r"^(大字|字)", "", s)
     s = re.sub(r"([一二三四五六七八九十]+|\d+)丁目", lambda m: f"{kanji_to_int(m.group(1))}丁目", s)
+    # 사카이시 등은 「五丁」처럼 目 없이 끝나는 町丁 이름을 쓴다
+    s = re.sub(r"([一二三四五六七八九十]+|\d+)丁$", lambda m: f"{kanji_to_int(m.group(1))}丁", s)
     return s
 
 

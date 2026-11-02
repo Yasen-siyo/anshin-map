@@ -18,6 +18,11 @@ for t in hittakuri syazyounerai buhinnerai zidouhanbaikinerai zidousyatou ootoba
   get "https://www.police.pref.kanagawa.jp/assets/entry/kanagawa_2025$t.csv" "$RAW/crime/kanagawa_2025$t.csv"
 done
 
+echo "오사카 (부경 犯罪オープンデータ, https://www.police.pref.osaka.lg.jp/seikatsu/24614.html)"
+for t in hittakuri syazyounerai buhinnerai zidouhanbaikinerai zidousyatou ootobaitou zitensyatou; do
+  get "https://www.police.pref.osaka.lg.jp/material/files/group/2/osaka_2025$t.csv" "$RAW/crime/osaka_2025$t.csv"
+done
+
 echo "지바 (현경 犯罪発生情報 지도)"
 get https://map.police.chiba.dsvc.jp/data/tsv/crime.tsv "$RAW/crime/chiba/crime.tsv"
 

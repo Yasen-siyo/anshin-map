@@ -17,13 +17,13 @@ import config as C  # noqa: E402
 RAW = pathlib.Path(__file__).resolve().parent.parent / "data/raw"
 OUT = RAW / "osm_poi.json"
 TILES = RAW / "osm_tiles"
-STEP = 0.25  # 칸 크기 (도)
+STEP = 0.25  # 기본 칸 크기 (도). 지역 설정의 osm_step 이 있으면 그 값을 쓴다
 
 # 앞에서부터 차례로 시도 (공식 서버가 연결을 끊는 일이 잦아 미러를 함께 둔다)
 ENDPOINTS = [
-    "https://overpass-api.de/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass-api.de/api/interpreter",
 ]
 
 QUERY = """
@@ -46,7 +46,7 @@ def fetch(q):
     for url in ENDPOINTS:
         try:
             req = urllib.request.Request(url, data=data, headers={"User-Agent": "anshin-map/0.1"})
-            with urllib.request.urlopen(req, timeout=240) as r:
+            with urllib.request.urlopen(req, timeout=150) as r:
                 j = json.loads(r.read())
             if "error" in j.get("remark", "").lower():
                 raise RuntimeError(j["remark"])
@@ -58,14 +58,14 @@ def fetch(q):
 
 def tiles():
     for reg in C.REGIONS.values():
-        b = reg["bbox"]
+        b, step = reg["bbox"], reg.get("osm_step", STEP)
         s = b["south"]
-        while s < b["north"]:
+        while s < b["north"] - 1e-9:
             w = b["west"]
-            while w < b["east"]:
-                yield round(s, 3), round(w, 3), round(min(s + STEP, b["north"]), 3), round(min(w + STEP, b["east"]), 3)
-                w += STEP
-            s += STEP
+            while w < b["east"] - 1e-9:
+                yield round(s, 3), round(w, 3), round(min(s + step, b["north"]), 3), round(min(w + step, b["east"]), 3)
+                w += step
+            s += step
 
 
 def merge(missing):

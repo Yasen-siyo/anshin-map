@@ -1,0 +1,50 @@
+{
+ "id": "osaka",
+ "name": "오사카",
+ "center": [
+  34.69,
+  135.5
+ ],
+ "zoom": 12,
+ "bounds": [
+  [
+   34.37987856051317,
+   135.18
+  ],
+  [
+   34.9,
+   135.72046990191936
+  ]
+ ],
+ "cell_m": 100,
+ "nx": 495,
+ "ny": 579,
+ "poi_counts": {
+  "bar": 2237,
+  "pachinko": 318,
+  "love_hotel": 202,
+  "nightclub": 32,
+  "brothel": 286,
+  "gambling": 49,
+  "adult_shop": 9,
+  "stripclub": 1,
+  "hookah": 1
+ },
+ "mix": {
+  "poi": 0.55,
+  "crime": 0.45
+ },
+ "weights": {
+  "stripclub": 4.0,
+  "brothel": 4.0,
+  "nightclub": 3.0,
+  "pachinko": 2.5,
+  "gambling": 2.0,
+  "adult_shop": 2.0,
+  "love_hotel": 2.0,
+  "bar": 1.0,
+  "hookah": 0.5
+ },
+ "no_crime_prefs": [],
+ "crime_src": "오사카부경"
+}

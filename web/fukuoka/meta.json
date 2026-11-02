@@ -1,0 +1,50 @@
+{
+ "id": "fukuoka",
+ "name": "후쿠오카",
+ "center": [
+  33.59,
+  130.4
+ ],
+ "zoom": 13,
+ "bounds": [
+  [
+   33.4491821552903,
+   130.2
+  ],
+  [
+   33.76,
+   130.5602437883131
+  ]
+ ],
+ "cell_m": 100,
+ "nx": 334,
+ "ny": 346,
+ "poi_counts": {
+  "bar": 114,
+  "pachinko": 48,
+  "love_hotel": 20,
+  "nightclub": 8,
+  "gambling": 1,
+  "adult_shop": 1,
+  "brothel": 15
+ },
+ "mix": {
+  "poi": 0.55,
+  "crime": 0.45
+ },
+ "weights": {
+  "stripclub": 4.0,
+  "brothel": 4.0,
+  "nightclub": 3.0,
+  "pachinko": 2.5,
+  "gambling": 2.0,
+  "adult_shop": 2.0,
+  "love_hotel": 2.0,
+  "bar": 1.0,
+  "hookah": 0.5
+ },
+ "no_crime_prefs": [
+  40
+ ],
+ "crime_src": ""
+}

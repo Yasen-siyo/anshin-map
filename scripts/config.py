@@ -9,10 +9,12 @@ REGIONS = {
         prefs=[13, 14, 12], neighbors=[8, 11, 19, 22], center=[35.681, 139.767], zoom=12),
     "osaka": dict(  # 오사카시·사카이·간사이공항 일대 (북쪽은 다카쓰키·히라카타까지)
         name="오사카", bbox=dict(south=34.38, west=135.18, north=34.90, east=135.72),
-        prefs=[27], neighbors=[26, 28, 29], center=[34.69, 135.50], zoom=12),
+        prefs=[27], neighbors=[26, 28, 29], center=[34.69, 135.50], zoom=12,
+        osm_step=0.13),  # 시설이 촘촘해 Overpass 미러가 시간 초과하지 않게 칸을 작게
     "fukuoka": dict(  # 후쿠오카시와 주변 (하카타·텐진·나카스, 공항, 이토시마 동쪽)
         name="후쿠오카", bbox=dict(south=33.45, west=130.20, north=33.76, east=130.56),
-        prefs=[40], neighbors=[41], center=[33.59, 130.40], zoom=13),
+        prefs=[40], neighbors=[41], center=[33.59, 130.40], zoom=13,
+        osm_step=0.12),
 }
 
 # 격자 한 칸 크기 (미터). 지도 이미지 해상도도 이 값으로 정해진다.
