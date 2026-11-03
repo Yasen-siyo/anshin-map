@@ -43,8 +43,6 @@
   "bar": 1.0,
   "hookah": 0.5
  },
- "no_crime_prefs": [
-  40
- ],
- "crime_src": ""
+ "no_crime_prefs": [],
+ "crime_src": "후쿠오카현경"
 }

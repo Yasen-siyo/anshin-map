@@ -16,6 +16,7 @@ import csv
 import json
 import math
 import pathlib
+import re
 import sys
 
 import numpy as np
@@ -159,6 +160,12 @@ def crime_layer(g, reg):
     for rec, _ in recs:
         k = (norm_name(rec["CITY_NAME"]), norm_name(rec["S_NAME"]))
         key_area[k] = key_area.get(k, 0) + float(rec["AREA"] or 0)
+
+    # 2020년 경계 뒤에 丁目가 새로 생긴 町 (예: 北原 → 北原１丁目) 은 丁目 없는 원래 町에 넣는다
+    for (city, town) in [k for k in crimes if k not in key_area]:
+        base = re.sub(r"\d+丁目?$", "", town)
+        if base != town and (city, base) in key_area:
+            crimes[(city, base)] = crimes.get((city, base), 0) + crimes.pop((city, town))
 
     W, H = g["nx"] * FINE, g["ny"] * FINE
     step = g["step"] / FINE

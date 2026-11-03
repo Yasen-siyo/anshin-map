@@ -23,6 +23,11 @@ for t in hittakuri syazyounerai buhinnerai zidouhanbaikinerai zidousyatou ootoba
   get "https://www.police.pref.osaka.lg.jp/material/files/group/2/osaka_2025$t.csv" "$RAW/crime/osaka_2025$t.csv"
 done
 
+echo "후쿠오카 (현경 犯罪オープンデータ, BODIK CKAN 데이터셋 400009_hanzair_r7)"
+curl -sSf -m 60 "https://data.bodik.jp/api/3/action/package_show?id=400009_hanzair_r7" \
+  | python3 -c 'import json,sys; [print(r["url"]) for r in json.load(sys.stdin)["result"]["resources"]]' \
+  | while read -r u; do get "$u" "$RAW/crime/$(basename "$u")"; done
+
 echo "지바 (현경 犯罪発生情報 지도)"
 get https://map.police.chiba.dsvc.jp/data/tsv/crime.tsv "$RAW/crime/chiba/crime.tsv"
 
